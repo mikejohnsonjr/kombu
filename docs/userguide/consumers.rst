@@ -95,6 +95,74 @@ and with multiple channels again:
     C(connection).run()
 
 
+There's also a :class:`~kombu.mixins.ConsumerProducerMixin` for consumers
+that need to also publish messages on a separate connection (e.g. sending rpc
+replies, streaming results):
+
+.. code-block:: python
+
+    from kombu import Producer, Queue
+    from kombu.mixins import ConsumerProducerMixin
+
+    rpc_queue = Queue('rpc_queue')
+
+    class Worker(ConsumerProducerMixin):
+
+        def __init__(self, connection):
+            self.connection = connection
+
+        def get_consumers(self, Consumer, channel):
+            return [Consumer(
+                queues=[rpc_queue],
+                on_message=self.on_request,
+                accept={'application/json'},
+                prefetch_count=1,
+            )]
+
+        def on_request(self, message):
+            n = message.payload['n']
+            print(' [.] fib({0})'.format(n))
+            result = fib(n)
+
+            self.producer.publish(
+                {'result': result},
+                exchange='', routing_key=message.properties['reply_to'],
+                correlation_id=message.properties['correlation_id'],
+                serializer='json',
+                retry=True,
+            )
+            message.ack()
+
+.. seealso::
+
+    :file:`examples/rpc-tut6/` in the Github repository.
+
+
+Advanced Topics
+===============
+
+RabbitMQ
+--------
+
+Consumer Priorities
+~~~~~~~~~~~~~~~~~~~
+
+RabbitMQ defines a consumer priority extension to the amqp protocol,
+that can be enabled by setting the ``x-priority`` argument to
+``basic.consume``.
+
+In kombu you can specify this argument on the :class:`~kombu.Queue`, like
+this:
+
+.. code-block:: python
+
+    queue = Queue('name', Exchange('exchange_name', type='direct'),
+                  consumer_arguments={'x-priority': 10})
+
+Read more about consumer priorities here:
+https://www.rabbitmq.com/consumer-priority.html
+
+
 Reference
 =========
 
